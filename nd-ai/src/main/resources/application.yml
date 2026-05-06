@@ -1,0 +1,25 @@
+server:
+  port: 8087
+
+spring:
+  application:
+    name: nd-ai
+  cloud:
+    function:
+      definition: fileUploadedConsumer
+    stream:
+      bindings:
+        fileUploadedConsumer-in-0:
+          destination: file.uploaded
+          group: nd-ai
+          content-type: application/json
+      kafka:
+        binder:
+          brokers: localhost:9092
+
+# gRPC client pointing at nd-files
+grpc:
+  client:
+    nd-files:
+      address: static://localhost:9082
+      negotiation-type: plaintext

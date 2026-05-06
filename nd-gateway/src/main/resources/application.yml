@@ -1,0 +1,31 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: nd-gateway
+  cloud:
+    gateway:
+      routes:
+        - id: auth
+          uri: http://localhost:8090
+          predicates:
+            - Path=/api/v1/auth/**
+        - id: files
+          uri: http://localhost:8082
+          predicates:
+            - Path=/api/v1/files/**
+        - id: ai
+          uri: http://localhost:8087
+          predicates:
+            - Path=/api/v1/ai/**
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOriginPatterns: "*"
+            allowedMethods: "*"
+            allowedHeaders: "*"
+            allowCredentials: true
+
+jwt:
+  secret: your-256-bit-secret-key-change-in-production-ok

@@ -1,0 +1,35 @@
+server:
+  port: 8082
+  servlet:
+    multipart:
+      max-file-size: 4096MB
+      max-request-size: 4096MB
+
+spring:
+  application:
+    name: nd-files
+  config:
+    import: classpath:storage.yml
+  datasource:
+    url: jdbc:mysql://localhost:3306/networkdisk_v2?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC
+    username: root
+    password: ''
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  cloud:
+    stream:
+      bindings:
+        fileUploaded-out-0:
+          destination: file.uploaded
+          content-type: application/json
+      kafka:
+        binder:
+          brokers: localhost:9092
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+
+# gRPC server port (separate from HTTP)
+grpc:
+  server:
+    port: 9082
