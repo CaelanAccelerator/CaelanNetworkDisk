@@ -11,3 +11,5 @@ target/
 **/generated-sources/
 
 application-local.yml
+CLAUDE.md
+.claude/

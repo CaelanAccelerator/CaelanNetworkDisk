@@ -1,14 +1,22 @@
 package com.disk.files.controller;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.disk.base.response.Result;
+import com.disk.files.controller.request.DeleteFileRequest;
+import com.disk.files.controller.vo.UserFileVO;
 import com.disk.files.domain.context.FileChunkMergeContext;
 import com.disk.files.domain.context.FileChunkUploadContext;
+import com.disk.files.domain.context.FileListContext;
 import com.disk.files.domain.context.SecUploadFileContext;
 import com.disk.files.domain.context.UploadFileContext;
+import com.disk.files.domain.context.UserFileDeleteContext;
 import com.disk.files.domain.service.impl.UserFileServiceImpl;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -94,6 +102,35 @@ public class UserFileController {
             @RequestHeader("X-User-Id") Long userId,
             @RequestParam String identifier) {
         return Result.success(userFileService.getUploadedChunks(identifier, userId));
+    }
+
+    /** List files and folders in a directory (delFlag=0 only, folders first) */
+    @GetMapping("/list")
+    public Result<IPage<UserFileVO>> list(
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestParam(defaultValue = "0") Long parentId,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        FileListContext ctx = new FileListContext();
+        ctx.setUserId(userId);
+        ctx.setParentId(parentId);
+        ctx.setPage(page);
+        ctx.setSize(size);
+        return Result.success(userFileService.listFiles(ctx));
+    }
+
+    /** Soft delete: move files to recycle bin (sets delFlag=1, does NOT delete from MinIO) */
+    @DeleteMapping("/file")
+    public Result<Void> deleteFiles(
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestBody @Valid DeleteFileRequest req) {
+
+        UserFileDeleteContext ctx = new UserFileDeleteContext();
+        ctx.setUserId(userId);
+        ctx.setIds(req.getIds());
+        userFileService.deleteFiles(ctx);
+        return Result.success();
     }
 
     /** Chunked upload — trigger merge after all chunks are uploaded */
