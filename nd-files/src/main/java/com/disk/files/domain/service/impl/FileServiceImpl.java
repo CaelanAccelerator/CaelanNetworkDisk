@@ -13,6 +13,7 @@ import com.disk.files.infrastructure.mapper.FileChunkMapper;
 import com.disk.files.infrastructure.mapper.FileMapper;
 import com.disk.storage.context.DeleteFileContext;
 import com.disk.storage.context.MergeFileContext;
+import com.disk.storage.context.ReadFileContext;
 import com.disk.storage.context.StoreFileChunkContext;
 import com.disk.storage.context.StoreFileContext;
 import com.disk.storage.core.StorageEngine;
@@ -21,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Collections;
@@ -178,6 +180,21 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileDO> {
             throw new BizException("Failed to persist file record");
         }
         return record;
+    }
+
+    // -------------------------------------------------------------------------
+    // Download — stream physical file bytes from MinIO to caller
+    // -------------------------------------------------------------------------
+
+    public void readFile(String realPath, OutputStream out) {
+        ReadFileContext ctx = new ReadFileContext();
+        ctx.setRealPath(realPath);
+        ctx.setOutputStream(out);
+        try {
+            storageEngine.read(ctx);
+        } catch (IOException e) {
+            throw new BizException("File read failed: " + e.getMessage());
+        }
     }
 
     private String extractSuffix(String filename) {

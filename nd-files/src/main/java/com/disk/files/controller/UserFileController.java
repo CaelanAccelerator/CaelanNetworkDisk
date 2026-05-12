@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.disk.base.response.Result;
 import com.disk.files.controller.request.DeleteFileRequest;
 import com.disk.files.controller.vo.UserFileVO;
+import com.disk.files.domain.context.DownloadFileContext;
 import com.disk.files.domain.context.FileChunkMergeContext;
 import com.disk.files.domain.context.FileChunkUploadContext;
 import com.disk.files.domain.context.FileListContext;
@@ -11,6 +12,7 @@ import com.disk.files.domain.context.SecUploadFileContext;
 import com.disk.files.domain.context.UploadFileContext;
 import com.disk.files.domain.context.UserFileDeleteContext;
 import com.disk.files.domain.service.impl.UserFileServiceImpl;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -23,6 +25,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -131,6 +136,38 @@ public class UserFileController {
         ctx.setIds(req.getIds());
         userFileService.deleteFiles(ctx);
         return Result.success();
+    }
+
+    /**
+     * Download a file.
+     * Returns raw bytes — NOT wrapped in Result<T> — because this is a binary stream response.
+     * Phase 1: validate (DB only) so we can set Content-Disposition with the real filename.
+     * Phase 2: set headers.
+     * Phase 3: stream bytes from MinIO.
+     */
+    @GetMapping("/file/download")
+    public void download(
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestParam Long userFileId,
+            HttpServletResponse response) throws IOException {
+
+        DownloadFileContext ctx = new DownloadFileContext();
+        ctx.setUserId(userId);
+        ctx.setUserFileId(userFileId);
+
+        // Phase 1: validate ownership — populates ctx.filename + ctx.realPath, no I/O
+        userFileService.validateDownload(ctx);
+
+        // Phase 2: write headers before touching the response body
+        response.setContentType("application/octet-stream");
+        response.setHeader("Content-Disposition",
+                "attachment; filename=\""
+                        + URLEncoder.encode(ctx.getFilename(), StandardCharsets.UTF_8)
+                        + "\"");
+
+        // Phase 3: stream MinIO object → response output stream
+        ctx.setOutputStream(response.getOutputStream());
+        userFileService.executeDownload(ctx);
     }
 
     /** Chunked upload — trigger merge after all chunks are uploaded */

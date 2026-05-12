@@ -31,7 +31,7 @@ public class FileGrpcService extends FileGrpcServiceGrpc.FileGrpcServiceImplBase
                                 StreamObserver<FileReadResponse> responseObserver) {
         UserFileDO userFile = userFileMapper.selectById(request.getUserFileId());
 
-        if (userFile == null || !request.getUserId().equals(userFile.getUserId())) {
+        if (userFile == null || request.getUserId() != userFile.getUserId()) {
             responseObserver.onNext(FileReadResponse.newBuilder()
                     .setSuccess(false)
                     .setMessage("File not found or access denied")

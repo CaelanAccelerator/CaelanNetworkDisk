@@ -9,6 +9,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.disk.base.exception.BizException;
 import com.disk.base.utils.IdUtil;
 import com.disk.files.controller.vo.UserFileVO;
+import com.disk.files.domain.context.DownloadFileContext;
 import com.disk.files.domain.context.FileChunkMergeContext;
 import com.disk.files.domain.context.FileChunkUploadContext;
 import com.disk.files.domain.context.FileListContext;
@@ -154,6 +155,40 @@ public class UserFileServiceImpl extends ServiceImpl<UserFileMapper, UserFileDO>
         // In production: compute MD5 on the client and pass it as a request param.
         // Falling back to filename+size is weak but sufficient for the skeleton.
         return file.getOriginalFilename() + "_" + file.getSize();
+    }
+
+    // -------------------------------------------------------------------------
+    // Download
+    // -------------------------------------------------------------------------
+
+    /**
+     * Phase 1: validate ownership and populate ctx.filename + ctx.realPath.
+     * No I/O — safe to call before setting HTTP response headers.
+     */
+    public void validateDownload(DownloadFileContext ctx) {
+        UserFileDO userFile = getById(ctx.getUserFileId());
+        if (userFile == null
+                || userFile.getDelFlag() == 1
+                || !userFile.getUserId().equals(ctx.getUserId())) {
+            throw new BizException(404, "File not found");
+        }
+        if (userFile.getFolderFlag() == 1) {
+            throw new BizException("Cannot download a folder");
+        }
+        FileDO file = fileService.getById(userFile.getRealFileId());
+        if (file == null) {
+            throw new BizException("Physical file record not found");
+        }
+        ctx.setFilename(userFile.getFilename());
+        ctx.setRealPath(file.getRealPath());
+    }
+
+    /**
+     * Phase 2: stream bytes from MinIO into ctx.outputStream.
+     * Call only after validateDownload() has populated ctx.
+     */
+    public void executeDownload(DownloadFileContext ctx) {
+        fileService.readFile(ctx.getRealPath(), ctx.getOutputStream());
     }
 
     // -------------------------------------------------------------------------

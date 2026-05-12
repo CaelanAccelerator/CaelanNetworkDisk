@@ -1,3 +1,12 @@
+-- ============================================================
+-- Step 1: create schema (run this file first)
+-- ============================================================
+CREATE DATABASE IF NOT EXISTS networkdisk_v2
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+USE networkdisk_v2;
+
 CREATE TABLE IF NOT EXISTS nd_user
 (
     id            BIGINT      NOT NULL COMMENT 'Snowflake ID',
