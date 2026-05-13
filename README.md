@@ -8,7 +8,6 @@ A cloud disk backend (Google Drive-style) built with Java microservices, designe
 |---|---|
 | API Gateway + Auth | Spring Cloud Gateway + JWT |
 | File Storage | MinIO (S3-compatible) |
-| Async Messaging | Kafka + Spring Cloud Stream |
 | Inter-service RPC | gRPC + Protobuf |
 | ORM | MyBatis-Plus |
 | Database | MySQL |
@@ -27,11 +26,9 @@ A cloud disk backend (Google Drive-style) built with Java microservices, designe
 
 **JWT at the Gateway** — tokens are validated once at nd-gateway, which injects `X-User-Id` header downstream. Individual services trust the header without re-parsing the token.
 
-**Kafka event pipeline** — every successful upload publishes a `FileUploadedEvent` to Kafka. nd-ai consumes these events, resolves the file path via gRPC, and logs the indexing entry point for the RAG pipeline.
+**gRPC server on nd-files** — exposes `GetFileReadInfo` (userFileId → MinIO path + metadata). nd-ai calls this on every summarize request to verify file ownership before reading content.
 
-**gRPC server on nd-files** — exposes `GetFileReadInfo` (userFileId → MinIO path + metadata). nd-ai calls this on every Kafka event and also on every summarize request to verify file ownership before reading content.
-
-**AI file summarization** — `POST /api/v1/ai/summarize` accepts one or more file IDs and an optional question. nd-ai reads file content from MinIO and calls Claude to explain or answer questions about the files. Large inputs are handled via map-reduce (per-file summaries combined into one answer). Supports text, markdown, and common code file types.
+**AI file summarization** — `POST /api/v1/ai/summarize` accepts one or more file IDs and an optional question. nd-ai reads file content from MinIO and calls Claude to explain or answer questions. Large inputs are handled via map-reduce (per-file summaries combined into a final answer). Supports text, markdown, and common code file types.
 
 ## API Endpoints
 
@@ -63,6 +60,16 @@ A cloud disk backend (Google Drive-style) built with Java microservices, designe
 | POST | `/api/v1/ai/summarize` | Summarize files with optional question |
 
 All requests go through **nd-gateway (8080)**. Swagger UI: `http://localhost:8082/swagger-ui.html` · `http://localhost:8087/swagger-ui.html`
+
+## Future Work
+
+| Feature | Notes |
+|---|---|
+| RAG / semantic search | Vector embeddings + pgvector storage |
+| File sharing | Share links, expiry, permission management |
+| Full-text search | Elasticsearch integration |
+| Caching layer | Redis for file metadata and hot paths |
+| Rate limiting | Sentinel or similar, at the gateway level |
 
 ## Quick Start
 
