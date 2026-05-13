@@ -47,7 +47,6 @@ public class JwtGlobalFilter implements GlobalFilter, Ordered {
                     .parseSignedClaims(token.substring(7))
                     .getPayload();
 
-            // Forward userId downstream as a header so services don't need to re-parse the token
             ServerWebExchange mutated = exchange.mutate()
                     .request(r -> r.header("X-User-Id", claims.getSubject()))
                     .build();

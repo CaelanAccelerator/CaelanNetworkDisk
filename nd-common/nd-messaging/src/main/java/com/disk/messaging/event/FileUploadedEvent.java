@@ -5,11 +5,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Published to Kafka topic "file.uploaded" after a file is successfully stored and
- * its metadata record is committed to MySQL.
- * nd-ai consumes this to trigger the RAG indexing pipeline.
- */
 @Data
 @Builder
 @NoArgsConstructor

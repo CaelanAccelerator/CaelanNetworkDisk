@@ -11,8 +11,8 @@ public class SaveFileContext {
     private String identifier;
     private Long userId;
     private MultipartFile file;
-    /** Set by FileServiceImpl after the physical file is stored */
+
     private String realPath;
-    /** Set by FileServiceImpl after the DB record is saved */
+
     private FileDO fileRecord;
 }

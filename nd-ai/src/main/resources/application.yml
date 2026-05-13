@@ -4,6 +4,8 @@ server:
 spring:
   application:
     name: nd-ai
+  config:
+    import: classpath:storage.yml
   cloud:
     function:
       definition: fileUploadedConsumer
@@ -16,6 +18,10 @@ spring:
       kafka:
         binder:
           brokers: localhost:9092
+
+claude:
+  api-key: ${CLAUDE_API_KEY}
+  model: claude-haiku-4-5-20251001
 
 # gRPC client pointing at nd-files
 grpc:

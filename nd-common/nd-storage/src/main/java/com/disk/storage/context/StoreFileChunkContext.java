@@ -14,6 +14,6 @@ public class StoreFileChunkContext {
     private Integer totalChunks;
     private Long userId;
     private InputStream inputStream;
-    /** Populated by the engine after storeChunk() completes */
+
     private String realPath;
 }

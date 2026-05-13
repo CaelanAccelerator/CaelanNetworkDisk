@@ -7,7 +7,6 @@ import lombok.Data;
 
 import java.util.Date;
 
-/** Temporary record for an uploaded chunk. Deleted after merge completes. */
 @Data
 @TableName("file_chunk")
 public class FileChunkDO {
@@ -22,6 +21,6 @@ public class FileChunkDO {
     private Long createUser;
     private Date createTime;
     private Date updateTime;
-    /** Chunks not merged within this time are cleaned up by a scheduled job */
+
     private Date expirationTime;
 }

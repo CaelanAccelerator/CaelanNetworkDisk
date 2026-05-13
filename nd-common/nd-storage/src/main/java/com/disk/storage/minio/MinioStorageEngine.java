@@ -49,8 +49,6 @@ public class MinioStorageEngine implements StorageEngine {
 
     @Override
     public void storeChunk(StoreFileChunkContext context) throws IOException {
-        // Chunk path: chunks/{identifier}/{chunkNumber}
-        // Each chunk must be ≥ 5 MB except the last (MinIO compose constraint).
         String objectName = "chunks/" + context.getIdentifier() + "/" + context.getChunkNumber();
         try {
             minioClient.putObject(

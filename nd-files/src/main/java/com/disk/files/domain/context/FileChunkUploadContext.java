@@ -13,6 +13,6 @@ public class FileChunkUploadContext {
     private Long totalSize;
     private Long userId;
     private MultipartFile file;
-    /** Set by FileServiceImpl — MinIO object path for this chunk */
+
     private String realPath;
 }

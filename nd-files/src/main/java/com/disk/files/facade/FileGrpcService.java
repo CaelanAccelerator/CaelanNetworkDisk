@@ -12,13 +12,6 @@ import io.grpc.stub.StreamObserver;
 import lombok.RequiredArgsConstructor;
 import net.devh.boot.grpc.server.service.GrpcService;
 
-import java.util.List;
-
-/**
- * gRPC server — exposes file metadata to nd-ai (and future services).
- * nd-ai calls GetFileReadInfo before starting a RAG indexing job so it can
- * resolve a userFileId → physical MinIO path.
- */
 @GrpcService
 @RequiredArgsConstructor
 public class FileGrpcService extends FileGrpcServiceGrpc.FileGrpcServiceImplBase {
@@ -40,7 +33,6 @@ public class FileGrpcService extends FileGrpcServiceGrpc.FileGrpcServiceImplBase
             return;
         }
 
-        List<FileDO> files = fileService.findByIdentifier(null, null); // will be refined
         FileDO file = fileService.getById(userFile.getRealFileId());
         if (file == null) {
             responseObserver.onNext(FileReadResponse.newBuilder()

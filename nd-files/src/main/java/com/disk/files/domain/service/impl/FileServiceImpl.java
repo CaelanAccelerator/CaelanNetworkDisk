@@ -39,10 +39,6 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileDO> {
     private final StorageEngine storageEngine;
     private final FileChunkMapper fileChunkMapper;
 
-    // -------------------------------------------------------------------------
-    // Single-file upload
-    // -------------------------------------------------------------------------
-
     public void saveFile(SaveFileContext context) {
         storePhysicalFile(context);
         FileDO record = persistFileRecord(context.getFilename(), context.getRealPath(),
@@ -56,16 +52,12 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileDO> {
         storeCtx.setTotalSize(context.getTotalSize());
         try {
             storeCtx.setInputStream(context.getFile().getInputStream());
-            storageEngine.store(storeCtx);                  // FIX: call was missing in original
-            context.setRealPath(storeCtx.getRealPath());    // populated by engine after store()
+            storageEngine.store(storeCtx);
+            context.setRealPath(storeCtx.getRealPath());
         } catch (IOException e) {
             throw new BizException("File upload failed: " + e.getMessage());
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Chunked upload
-    // -------------------------------------------------------------------------
 
     public void saveChunk(FileChunkUploadContext context) {
         StoreFileChunkContext storeCtx = new StoreFileChunkContext();
@@ -121,7 +113,7 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileDO> {
         mergeCtx.setUserId(userId);
         mergeCtx.setRealPathList(chunkPaths);
         try {
-            storageEngine.mergeFile(mergeCtx);  // also deletes chunk objects in MinIO
+            storageEngine.mergeFile(mergeCtx);
         } catch (IOException e) {
             throw new BizException("Chunk merge failed: " + e.getMessage());
         }
@@ -131,10 +123,6 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileDO> {
 
         return persistFileRecord(filename, mergeCtx.getRealPath(), totalSize, identifier, userId);
     }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
 
     public List<FileDO> findByIdentifier(String identifier, Long userId) {
         LambdaQueryWrapper<FileDO> q = Wrappers.lambdaQuery();
@@ -167,24 +155,18 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileDO> {
         record.setCreateTime(new Date());
 
         if (!save(record)) {
-            // DB insert failed — roll back the physical file to avoid storage leak
-            // FIX: original had type mismatch and never called delete()
             DeleteFileContext deleteCtx = new DeleteFileContext();
             deleteCtx.setRealPathList(Collections.singletonList(realPath));
             try {
                 storageEngine.delete(deleteCtx);
             } catch (IOException rollbackEx) {
                 log.error("Rollback failed — orphaned object at {}", realPath, rollbackEx);
-                // TODO: publish to a dead-letter Kafka topic for manual cleanup
+
             }
             throw new BizException("Failed to persist file record");
         }
         return record;
     }
-
-    // -------------------------------------------------------------------------
-    // Download — stream physical file bytes from MinIO to caller
-    // -------------------------------------------------------------------------
 
     public void readFile(String realPath, OutputStream out) {
         ReadFileContext ctx = new ReadFileContext();

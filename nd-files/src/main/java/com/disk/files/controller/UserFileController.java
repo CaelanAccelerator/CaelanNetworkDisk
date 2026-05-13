@@ -2,9 +2,15 @@ package com.disk.files.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.disk.base.response.Result;
+import com.disk.files.controller.request.CreateFolderRequest;
 import com.disk.files.controller.request.DeleteFileRequest;
+import com.disk.files.controller.request.RenameFileRequest;
 import com.disk.files.controller.vo.UserFileVO;
+import com.disk.files.domain.context.CreateFolderContext;
 import com.disk.files.domain.context.DownloadFileContext;
+import com.disk.files.domain.context.RecycleListContext;
+import com.disk.files.domain.context.RecycleRestoreContext;
+import com.disk.files.domain.context.RenameFileContext;
 import com.disk.files.domain.context.FileChunkMergeContext;
 import com.disk.files.domain.context.FileChunkUploadContext;
 import com.disk.files.domain.context.FileListContext;
@@ -14,10 +20,13 @@ import com.disk.files.domain.context.UserFileDeleteContext;
 import com.disk.files.domain.service.impl.UserFileServiceImpl;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,6 +40,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
+@Tag(name = "Files", description = "File and folder management")
 @RestController
 @RequestMapping("/api/v1/files")
 @RequiredArgsConstructor
@@ -38,7 +48,19 @@ public class UserFileController {
 
     private final UserFileServiceImpl userFileService;
 
-    /** Step 0: check if file already exists by MD5 — skip upload if true */
+    @PostMapping("/folder")
+    public Result<Long> createFolder(
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestBody @Valid CreateFolderRequest req) {
+
+        CreateFolderContext ctx = new CreateFolderContext();
+        ctx.setUserId(userId);
+        ctx.setFolderName(req.getFolderName());
+        ctx.setParentId(req.getParentId());
+        return Result.success(userFileService.createFolder(ctx));
+    }
+
+    @Operation(hidden = true)
     @PostMapping("/file/sec-upload")
     public Result<Map<String, Boolean>> secUpload(
             @RequestHeader("X-User-Id") Long userId,
@@ -58,8 +80,7 @@ public class UserFileController {
         return Result.success(Map.of("existed", existed));
     }
 
-    /** Single-file upload (small files) */
-    @PostMapping("/file/upload")
+    @PostMapping(value = "/file/upload", consumes = "multipart/form-data")
     public Result<Void> upload(
             @RequestHeader("X-User-Id") Long userId,
             @RequestParam MultipartFile file,
@@ -75,7 +96,7 @@ public class UserFileController {
         return Result.success();
     }
 
-    /** Chunked upload — upload one chunk */
+    @Operation(hidden = true)
     @PostMapping("/file/chunk-upload")
     public Result<Map<String, Integer>> chunkUpload(
             @RequestHeader("X-User-Id") Long userId,
@@ -101,7 +122,7 @@ public class UserFileController {
         return Result.success(Map.of("mergeFlag", mergeFlag));
     }
 
-    /** Query which chunks are already uploaded (for resume support) */
+    @Operation(hidden = true)
     @GetMapping("/file/chunk-upload")
     public Result<List<Integer>> getUploadedChunks(
             @RequestHeader("X-User-Id") Long userId,
@@ -109,7 +130,6 @@ public class UserFileController {
         return Result.success(userFileService.getUploadedChunks(identifier, userId));
     }
 
-    /** List files and folders in a directory (delFlag=0 only, folders first) */
     @GetMapping("/list")
     public Result<IPage<UserFileVO>> list(
             @RequestHeader("X-User-Id") Long userId,
@@ -125,7 +145,44 @@ public class UserFileController {
         return Result.success(userFileService.listFiles(ctx));
     }
 
-    /** Soft delete: move files to recycle bin (sets delFlag=1, does NOT delete from MinIO) */
+    @GetMapping("/recycle")
+    public Result<IPage<UserFileVO>> listRecycle(
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        RecycleListContext ctx = new RecycleListContext();
+        ctx.setUserId(userId);
+        ctx.setPage(page);
+        ctx.setSize(size);
+        return Result.success(userFileService.listRecycle(ctx));
+    }
+
+    @PutMapping("/recycle")
+    public Result<Void> restoreRecycle(
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestBody @Valid DeleteFileRequest req) {
+
+        RecycleRestoreContext ctx = new RecycleRestoreContext();
+        ctx.setUserId(userId);
+        ctx.setIds(req.getIds());
+        userFileService.restoreRecycle(ctx);
+        return Result.success();
+    }
+
+    @PutMapping("/file/name")
+    public Result<Void> renameFile(
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestBody @Valid RenameFileRequest req) {
+
+        RenameFileContext ctx = new RenameFileContext();
+        ctx.setUserId(userId);
+        ctx.setUserFileId(req.getUserFileId());
+        ctx.setNewFilename(req.getNewFilename());
+        userFileService.renameFile(ctx);
+        return Result.success();
+    }
+
     @DeleteMapping("/file")
     public Result<Void> deleteFiles(
             @RequestHeader("X-User-Id") Long userId,
@@ -138,13 +195,6 @@ public class UserFileController {
         return Result.success();
     }
 
-    /**
-     * Download a file.
-     * Returns raw bytes — NOT wrapped in Result<T> — because this is a binary stream response.
-     * Phase 1: validate (DB only) so we can set Content-Disposition with the real filename.
-     * Phase 2: set headers.
-     * Phase 3: stream bytes from MinIO.
-     */
     @GetMapping("/file/download")
     public void download(
             @RequestHeader("X-User-Id") Long userId,
@@ -155,22 +205,19 @@ public class UserFileController {
         ctx.setUserId(userId);
         ctx.setUserFileId(userFileId);
 
-        // Phase 1: validate ownership — populates ctx.filename + ctx.realPath, no I/O
         userFileService.validateDownload(ctx);
 
-        // Phase 2: write headers before touching the response body
         response.setContentType("application/octet-stream");
         response.setHeader("Content-Disposition",
                 "attachment; filename=\""
                         + URLEncoder.encode(ctx.getFilename(), StandardCharsets.UTF_8)
                         + "\"");
 
-        // Phase 3: stream MinIO object → response output stream
         ctx.setOutputStream(response.getOutputStream());
         userFileService.executeDownload(ctx);
     }
 
-    /** Chunked upload — trigger merge after all chunks are uploaded */
+    @Operation(hidden = true)
     @PostMapping("/file/merge")
     public Result<Void> mergeFile(
             @RequestHeader("X-User-Id") Long userId,

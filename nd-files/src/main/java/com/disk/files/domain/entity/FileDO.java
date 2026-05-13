@@ -7,7 +7,6 @@ import lombok.Data;
 
 import java.util.Date;
 
-/** Physical file record — shared across users who own the same content (dedup via identifier). */
 @Data
 @TableName("file")
 public class FileDO {

@@ -9,7 +9,11 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.disk.base.exception.BizException;
 import com.disk.base.utils.IdUtil;
 import com.disk.files.controller.vo.UserFileVO;
+import com.disk.files.domain.context.CreateFolderContext;
 import com.disk.files.domain.context.DownloadFileContext;
+import com.disk.files.domain.context.RecycleListContext;
+import com.disk.files.domain.context.RecycleRestoreContext;
+import com.disk.files.domain.context.RenameFileContext;
 import com.disk.files.domain.context.FileChunkMergeContext;
 import com.disk.files.domain.context.FileChunkUploadContext;
 import com.disk.files.domain.context.FileListContext;
@@ -42,27 +46,19 @@ public class UserFileServiceImpl extends ServiceImpl<UserFileMapper, UserFileDO>
     private final FileServiceImpl fileService;
     private final StreamBridge streamBridge;
 
-    // -------------------------------------------------------------------------
-    // Instant (sec) upload — returns false if the file has never been seen before
-    // -------------------------------------------------------------------------
-
     public boolean secUpload(SecUploadFileContext context) {
         List<FileDO> existing = fileService.findByIdentifier(context.getIdentifier(), context.getUserId());
         if (existing.isEmpty()) {
             return false;
         }
-        // File content already stored — just create a new user_file record pointing at it
+
         FileDO file = existing.get(0);
-        saveUserFileRecord(context.getUserId(), context.getFilename(),
+        UserFileDO userFile = saveUserFileRecord(context.getUserId(), context.getFilename(),
                 context.getParentId(), context.getFileType(), file.getId());
 
-        publishUploadEvent(file, context.getUserId());
+        publishUploadEvent(file, userFile.getId(), context.getUserId());
         return true;
     }
-
-    // -------------------------------------------------------------------------
-    // Single-file upload
-    // -------------------------------------------------------------------------
 
     @Transactional(rollbackFor = Exception.class)
     public void upload(UploadFileContext context) {
@@ -80,19 +76,15 @@ public class UserFileServiceImpl extends ServiceImpl<UserFileMapper, UserFileDO>
                 file.getOriginalFilename(), context.getParentId(),
                 context.getFileType(), saveCtx.getFileRecord().getId());
 
-        publishUploadEvent(saveCtx.getFileRecord(), context.getUserId());
+        publishUploadEvent(saveCtx.getFileRecord(), userFile.getId(), context.getUserId());
     }
-
-    // -------------------------------------------------------------------------
-    // Chunked upload — step 1: upload one chunk
-    // -------------------------------------------------------------------------
 
     public Integer chunkUpload(FileChunkUploadContext context) {
         fileService.saveChunk(context);
         List<Integer> uploaded = fileService.getUploadedChunkNumbers(
                 context.getIdentifier(), context.getUserId());
         boolean allDone = uploaded.size() >= context.getTotalChunks();
-        // Return 1 = ready to merge, 0 = more chunks needed
+
         return allDone ? 1 : 0;
     }
 
@@ -100,25 +92,17 @@ public class UserFileServiceImpl extends ServiceImpl<UserFileMapper, UserFileDO>
         return fileService.getUploadedChunkNumbers(identifier, userId);
     }
 
-    // -------------------------------------------------------------------------
-    // Chunked upload — step 2: merge
-    // -------------------------------------------------------------------------
-
     @Transactional(rollbackFor = Exception.class)
     public void mergeFile(FileChunkMergeContext context) {
         FileDO file = fileService.mergeChunksAndSave(
                 context.getFilename(), context.getIdentifier(),
                 context.getTotalSize(), context.getUserId());
 
-        saveUserFileRecord(context.getUserId(), context.getFilename(),
+        UserFileDO mergedUserFile = saveUserFileRecord(context.getUserId(), context.getFilename(),
                 context.getParentId(), context.getFileType(), file.getId());
 
-        publishUploadEvent(file, context.getUserId());
+        publishUploadEvent(file, mergedUserFile.getId(), context.getUserId());
     }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
 
     private UserFileDO saveUserFileRecord(Long userId, String filename,
                                           Long parentId, Integer fileType, Long realFileId) {
@@ -139,9 +123,10 @@ public class UserFileServiceImpl extends ServiceImpl<UserFileMapper, UserFileDO>
         return userFile;
     }
 
-    private void publishUploadEvent(FileDO file, Long userId) {
+    private void publishUploadEvent(FileDO file, Long userFileId, Long userId) {
         FileUploadedEvent event = FileUploadedEvent.builder()
                 .fileId(file.getId())
+                .userFileId(userFileId)
                 .userId(userId)
                 .filename(file.getFilename())
                 .realPath(file.getRealPath())
@@ -152,19 +137,43 @@ public class UserFileServiceImpl extends ServiceImpl<UserFileMapper, UserFileDO>
     }
 
     private String buildIdentifier(MultipartFile file) {
-        // In production: compute MD5 on the client and pass it as a request param.
-        // Falling back to filename+size is weak but sufficient for the skeleton.
+
         return file.getOriginalFilename() + "_" + file.getSize();
     }
 
-    // -------------------------------------------------------------------------
-    // Download
-    // -------------------------------------------------------------------------
+    public Long createFolder(CreateFolderContext ctx) {
+        UserFileDO folder = new UserFileDO();
+        folder.setId(IdUtil.get());
+        folder.setUserId(ctx.getUserId());
+        folder.setFilename(ctx.getFolderName());
+        folder.setParentId(ctx.getParentId());
+        folder.setFolderFlag(1);
+        folder.setRealFileId(null);
+        folder.setDelFlag(0);
+        folder.setCreateUser(ctx.getUserId());
+        folder.setUpdateUser(ctx.getUserId());
+        folder.setCreateTime(new Date());
+        folder.setUpdateTime(new Date());
+        save(folder);
+        return folder.getId();
+    }
 
-    /**
-     * Phase 1: validate ownership and populate ctx.filename + ctx.realPath.
-     * No I/O — safe to call before setting HTTP response headers.
-     */
+    public void renameFile(RenameFileContext ctx) {
+        UserFileDO userFile = getById(ctx.getUserFileId());
+        if (userFile == null || userFile.getDelFlag() == 1) {
+            throw new BizException(404, "File not found");
+        }
+        if (!userFile.getUserId().equals(ctx.getUserId())) {
+            throw new BizException(403, "Access denied");
+        }
+        LambdaUpdateWrapper<UserFileDO> update = new LambdaUpdateWrapper<UserFileDO>()
+                .set(UserFileDO::getFilename, ctx.getNewFilename())
+                .set(UserFileDO::getUpdateUser, ctx.getUserId())
+                .set(UserFileDO::getUpdateTime, new Date())
+                .eq(UserFileDO::getId, ctx.getUserFileId());
+        update(update);
+    }
+
     public void validateDownload(DownloadFileContext ctx) {
         UserFileDO userFile = getById(ctx.getUserFileId());
         if (userFile == null
@@ -183,31 +192,22 @@ public class UserFileServiceImpl extends ServiceImpl<UserFileMapper, UserFileDO>
         ctx.setRealPath(file.getRealPath());
     }
 
-    /**
-     * Phase 2: stream bytes from MinIO into ctx.outputStream.
-     * Call only after validateDownload() has populated ctx.
-     */
     public void executeDownload(DownloadFileContext ctx) {
         fileService.readFile(ctx.getRealPath(), ctx.getOutputStream());
     }
 
-    // -------------------------------------------------------------------------
-    // File listing
-    // -------------------------------------------------------------------------
-
     public IPage<UserFileVO> listFiles(FileListContext ctx) {
-        // Step 1: paginated query of the user's virtual file-system entries
+
         Page<UserFileDO> pageReq = new Page<>(ctx.getPage(), ctx.getSize());
         LambdaQueryWrapper<UserFileDO> q = new LambdaQueryWrapper<UserFileDO>()
                 .eq(UserFileDO::getUserId, ctx.getUserId())
                 .eq(UserFileDO::getParentId, ctx.getParentId())
                 .eq(UserFileDO::getDelFlag, 0)
-                .orderByDesc(UserFileDO::getFolderFlag)  // folders (1) before files (0)
+                .orderByDesc(UserFileDO::getFolderFlag)
                 .orderByDesc(UserFileDO::getCreateTime);
 
         Page<UserFileDO> result = page(pageReq, q);
 
-        // Step 2: batch-fetch physical file records to enrich with size/suffix
         List<Long> realFileIds = result.getRecords().stream()
                 .filter(f -> f.getRealFileId() != null)
                 .map(UserFileDO::getRealFileId)
@@ -218,7 +218,6 @@ public class UserFileServiceImpl extends ServiceImpl<UserFileMapper, UserFileDO>
                 : fileService.listByIds(realFileIds).stream()
                         .collect(Collectors.toMap(FileDO::getId, f -> f));
 
-        // Step 3: assemble VO list
         List<UserFileVO> voList = result.getRecords().stream()
                 .map(uf -> toVO(uf, fileMap.get(uf.getRealFileId())))
                 .collect(Collectors.toList());
@@ -244,12 +243,35 @@ public class UserFileServiceImpl extends ServiceImpl<UserFileMapper, UserFileDO>
         return vo;
     }
 
-    // -------------------------------------------------------------------------
-    // Soft delete (move to recycle bin)
-    // -------------------------------------------------------------------------
+    public IPage<UserFileVO> listRecycle(RecycleListContext ctx) {
+        Page<UserFileDO> pageReq = new Page<>(ctx.getPage(), ctx.getSize());
+        LambdaQueryWrapper<UserFileDO> q = new LambdaQueryWrapper<UserFileDO>()
+                .eq(UserFileDO::getUserId, ctx.getUserId())
+                .eq(UserFileDO::getDelFlag, 1)
+                .orderByDesc(UserFileDO::getUpdateTime);
 
-    public void deleteFiles(UserFileDeleteContext ctx) {
-        // Verify all IDs exist and belong to this user before touching anything
+        Page<UserFileDO> result = page(pageReq, q);
+
+        List<Long> realFileIds = result.getRecords().stream()
+                .filter(f -> f.getRealFileId() != null)
+                .map(UserFileDO::getRealFileId)
+                .collect(Collectors.toList());
+
+        Map<Long, FileDO> fileMap = realFileIds.isEmpty()
+                ? Collections.emptyMap()
+                : fileService.listByIds(realFileIds).stream()
+                        .collect(Collectors.toMap(FileDO::getId, f -> f));
+
+        List<UserFileVO> voList = result.getRecords().stream()
+                .map(uf -> toVO(uf, fileMap.get(uf.getRealFileId())))
+                .collect(Collectors.toList());
+
+        Page<UserFileVO> voPage = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
+        voPage.setRecords(voList);
+        return voPage;
+    }
+
+    public void restoreRecycle(RecycleRestoreContext ctx) {
         List<UserFileDO> files = listByIds(ctx.getIds());
         if (files.size() != ctx.getIds().size()) {
             throw new BizException("Some files do not exist");
@@ -260,7 +282,26 @@ public class UserFileServiceImpl extends ServiceImpl<UserFileMapper, UserFileDO>
             throw new BizException(403, "Access denied");
         }
 
-        // Batch update: set delFlag = 1 for all matched IDs
+        LambdaUpdateWrapper<UserFileDO> update = new LambdaUpdateWrapper<UserFileDO>()
+                .set(UserFileDO::getDelFlag, 0)
+                .set(UserFileDO::getUpdateUser, ctx.getUserId())
+                .set(UserFileDO::getUpdateTime, new Date())
+                .in(UserFileDO::getId, ctx.getIds());
+        update(update);
+    }
+
+    public void deleteFiles(UserFileDeleteContext ctx) {
+
+        List<UserFileDO> files = listByIds(ctx.getIds());
+        if (files.size() != ctx.getIds().size()) {
+            throw new BizException("Some files do not exist");
+        }
+        boolean allOwned = files.stream()
+                .allMatch(f -> f.getUserId().equals(ctx.getUserId()));
+        if (!allOwned) {
+            throw new BizException(403, "Access denied");
+        }
+
         LambdaUpdateWrapper<UserFileDO> update = new LambdaUpdateWrapper<UserFileDO>()
                 .set(UserFileDO::getDelFlag, 1)
                 .set(UserFileDO::getUpdateUser, ctx.getUserId())

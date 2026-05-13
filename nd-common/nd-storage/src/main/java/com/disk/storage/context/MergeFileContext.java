@@ -10,6 +10,6 @@ public class MergeFileContext {
     private String identifier;
     private Long userId;
     private List<String> realPathList;
-    /** Populated by the engine after mergeFile() completes */
+
     private String realPath;
 }

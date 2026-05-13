@@ -7,11 +7,6 @@ import lombok.Data;
 
 import java.util.Date;
 
-/**
- * User's virtual file-system entry.
- * Many UserFileDO rows can point to the same FileDO.realFileId (dedup).
- * Folders have realFileId = null and folderFlag = 1.
- */
 @Data
 @TableName("user_file")
 public class UserFileDO {
@@ -21,11 +16,11 @@ public class UserFileDO {
     private Long userId;
     private String filename;
     private Long parentId;
-    /** 1 = folder, 0 = file */
+
     private Integer folderFlag;
     private Integer fileType;
     private Long realFileId;
-    /** 0 = normal, 1 = deleted (soft delete → recycle bin) */
+
     private Integer delFlag;
     private Long createUser;
     private Long updateUser;

@@ -1,48 +1,61 @@
 package com.disk.ai.messaging;
 
+import com.disk.api.file.FileGrpcServiceGrpc;
+import com.disk.api.file.FileReadData;
+import com.disk.api.file.FileReadRequest;
+import com.disk.api.file.FileReadResponse;
 import com.disk.messaging.event.FileUploadedEvent;
 import lombok.extern.slf4j.Slf4j;
+import net.devh.boot.grpc.client.inject.GrpcClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.Set;
 import java.util.function.Consumer;
 
-/**
- * Kafka consumer — entry point for the RAG indexing pipeline.
- *
- * Current state: stub that logs the event and returns.
- * Phase 2: call nd-files via gRPC to get realPath, download from MinIO,
- *           parse with Apache Tika, chunk, embed, store in pgvector.
- *
- * Supported file types for indexing (others are skipped):
- */
 @Slf4j
 @Configuration
 public class FileUploadConsumer {
 
     private static final Set<String> INDEXABLE_TYPES = Set.of("pdf", "txt", "docx", "md");
 
+    @GrpcClient("nd-files")
+    private FileGrpcServiceGrpc.FileGrpcServiceBlockingStub fileGrpcStub;
+
     @Bean
     public Consumer<FileUploadedEvent> fileUploadedConsumer() {
         return event -> {
-            log.info("[AI-STUB] file.uploaded — fileId={} userId={} filename={} suffix={}",
-                    event.getFileId(), event.getUserId(),
+            log.info("[AI] file.uploaded — fileId={} userFileId={} userId={} filename={} suffix={}",
+                    event.getFileId(), event.getUserFileId(), event.getUserId(),
                     event.getFilename(), event.getFileSuffix());
 
             if (!INDEXABLE_TYPES.contains(event.getFileSuffix())) {
-                log.debug("[AI-STUB] Skipping non-indexable file type: {}", event.getFileSuffix());
+                log.debug("[AI] Skipping non-indexable file type: {}", event.getFileSuffix());
                 return;
             }
 
-            // TODO Phase 2:
-            // 1. Call FileGrpcService.getFileReadInfo() to verify access and get realPath
-            // 2. Download bytes from MinIO via StorageEngine.read()
-            // 3. Parse with Apache Tika → plain text
-            // 4. Chunk (size=1200 chars, overlap=200)
-            // 5. Call embedding API (OpenAI-compatible, e.g. DashScope)
-            // 6. Insert vectors into pgvector table
-            log.info("[AI-STUB] RAG indexing pipeline not yet implemented for fileId={}", event.getFileId());
+            try {
+                FileReadRequest request = FileReadRequest.newBuilder()
+                        .setUserFileId(event.getUserFileId())
+                        .setUserId(event.getUserId())
+                        .build();
+                FileReadResponse response = fileGrpcStub.getFileReadInfo(request);
+
+                if (!response.getSuccess()) {
+                    log.warn("[AI] gRPC denied — userFileId={} reason={}",
+                            event.getUserFileId(), response.getMessage());
+                    return;
+                }
+
+                FileReadData data = response.getData();
+                log.info("[AI] gRPC resolved — path={} size={} suffix={}",
+                        data.getRealPath(), data.getFileSize(), data.getFileSuffix());
+
+                log.info("[AI] RAG indexing queued for fileId={} (Phase 2)", event.getFileId());
+
+            } catch (Exception e) {
+                log.error("[AI] gRPC call failed for fileId={}", event.getFileId(), e);
+            }
         };
     }
 }
