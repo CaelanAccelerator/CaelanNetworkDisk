@@ -4,10 +4,12 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.disk.base.response.Result;
 import com.disk.files.controller.request.CreateFolderRequest;
 import com.disk.files.controller.request.DeleteFileRequest;
+import com.disk.files.controller.request.MoveFileRequest;
 import com.disk.files.controller.request.RenameFileRequest;
 import com.disk.files.controller.vo.UserFileVO;
 import com.disk.files.domain.context.CreateFolderContext;
 import com.disk.files.domain.context.DownloadFileContext;
+import com.disk.files.domain.context.MoveFileContext;
 import com.disk.files.domain.context.RecycleListContext;
 import com.disk.files.domain.context.RecycleRestoreContext;
 import com.disk.files.domain.context.RenameFileContext;
@@ -98,7 +100,7 @@ public class UserFileController {
 
     @Operation(hidden = true)
     @PostMapping("/file/chunk-upload")
-    public Result<Map<String, Integer>> chunkUpload(
+    public Result<Void> chunkUpload(
             @RequestHeader("X-User-Id") Long userId,
             @RequestParam MultipartFile file,
             @RequestParam String filename,
@@ -118,8 +120,8 @@ public class UserFileController {
         ctx.setCurrentChunkSize(currentChunkSize);
         ctx.setTotalSize(totalSize);
 
-        Integer mergeFlag = userFileService.chunkUpload(ctx);
-        return Result.success(Map.of("mergeFlag", mergeFlag));
+        userFileService.chunkUpload(ctx);
+        return Result.success();
     }
 
     @Operation(hidden = true)
@@ -167,6 +169,19 @@ public class UserFileController {
         ctx.setUserId(userId);
         ctx.setIds(req.getIds());
         userFileService.restoreRecycle(ctx);
+        return Result.success();
+    }
+
+    @PutMapping("/file/move")
+    public Result<Void> moveFile(
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestBody @Valid MoveFileRequest req) {
+
+        MoveFileContext ctx = new MoveFileContext();
+        ctx.setUserId(userId);
+        ctx.setUserFileId(req.getUserFileId());
+        ctx.setTargetParentId(req.getTargetParentId());
+        userFileService.moveFile(ctx);
         return Result.success();
     }
 

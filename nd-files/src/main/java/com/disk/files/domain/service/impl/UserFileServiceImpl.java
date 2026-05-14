@@ -79,13 +79,8 @@ public class UserFileServiceImpl extends ServiceImpl<UserFileMapper, UserFileDO>
         publishUploadEvent(saveCtx.getFileRecord(), userFile.getId(), context.getUserId());
     }
 
-    public Integer chunkUpload(FileChunkUploadContext context) {
+    public void chunkUpload(FileChunkUploadContext context) {
         fileService.saveChunk(context);
-        List<Integer> uploaded = fileService.getUploadedChunkNumbers(
-                context.getIdentifier(), context.getUserId());
-        boolean allDone = uploaded.size() >= context.getTotalChunks();
-
-        return allDone ? 1 : 0;
     }
 
     public List<Integer> getUploadedChunks(String identifier, Long userId) {
@@ -156,6 +151,22 @@ public class UserFileServiceImpl extends ServiceImpl<UserFileMapper, UserFileDO>
         folder.setUpdateTime(new Date());
         save(folder);
         return folder.getId();
+    }
+
+    public void moveFile(com.disk.files.domain.context.MoveFileContext ctx) {
+        UserFileDO userFile = getById(ctx.getUserFileId());
+        if (userFile == null || userFile.getDelFlag() == 1) {
+            throw new BizException(404, "File not found");
+        }
+        if (!userFile.getUserId().equals(ctx.getUserId())) {
+            throw new BizException(403, "Access denied");
+        }
+        LambdaUpdateWrapper<UserFileDO> update = new LambdaUpdateWrapper<UserFileDO>()
+                .set(UserFileDO::getParentId, ctx.getTargetParentId())
+                .set(UserFileDO::getUpdateUser, ctx.getUserId())
+                .set(UserFileDO::getUpdateTime, new Date())
+                .eq(UserFileDO::getId, ctx.getUserFileId());
+        update(update);
     }
 
     public void renameFile(RenameFileContext ctx) {
