@@ -86,12 +86,14 @@ public class UserFileController {
     public Result<Void> upload(
             @RequestHeader("X-User-Id") Long userId,
             @RequestParam MultipartFile file,
+            @RequestParam String identifier,
             @RequestParam Long parentId,
             @RequestParam Integer fileType) {
 
         UploadFileContext ctx = new UploadFileContext();
         ctx.setUserId(userId);
         ctx.setFile(file);
+        ctx.setIdentifier(identifier);
         ctx.setParentId(parentId);
         ctx.setFileType(fileType);
         userFileService.upload(ctx);

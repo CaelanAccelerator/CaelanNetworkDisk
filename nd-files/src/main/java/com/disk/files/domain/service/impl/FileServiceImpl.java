@@ -179,6 +179,20 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileDO> {
         }
     }
 
+    public void deletePhysicalFile(Long fileId) {
+        FileDO file = getById(fileId);
+        if (file == null) return;
+
+        DeleteFileContext ctx = new DeleteFileContext();
+        ctx.setRealPathList(Collections.singletonList(file.getRealPath()));
+        try {
+            storageEngine.delete(ctx);
+        } catch (IOException e) {
+            log.warn("[RecycleCleanup] Failed to delete from storage: {}", file.getRealPath(), e);
+        }
+        removeById(fileId);
+    }
+
     private String extractSuffix(String filename) {
         int dot = filename.lastIndexOf('.');
         return dot >= 0 ? filename.substring(dot + 1).toLowerCase() : "";

@@ -8,6 +8,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.disk.base.exception.BizException;
 import com.disk.base.utils.IdUtil;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import com.disk.files.controller.vo.UserFileVO;
 import com.disk.files.domain.context.CreateFolderContext;
 import com.disk.files.domain.context.DownloadFileContext;
@@ -31,6 +33,7 @@ import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+
 
 import java.util.Collections;
 import java.util.Date;
@@ -66,7 +69,7 @@ public class UserFileServiceImpl extends ServiceImpl<UserFileMapper, UserFileDO>
         SaveFileContext saveCtx = new SaveFileContext();
         saveCtx.setFilename(file.getOriginalFilename());
         saveCtx.setTotalSize(file.getSize());
-        saveCtx.setIdentifier(buildIdentifier(file));
+        saveCtx.setIdentifier(context.getIdentifier());
         saveCtx.setUserId(context.getUserId());
         saveCtx.setFile(file);
 
@@ -131,10 +134,6 @@ public class UserFileServiceImpl extends ServiceImpl<UserFileMapper, UserFileDO>
         streamBridge.send("fileUploaded-out-0", event);
     }
 
-    private String buildIdentifier(MultipartFile file) {
-
-        return file.getOriginalFilename() + "_" + file.getSize();
-    }
 
     public Long createFolder(CreateFolderContext ctx) {
         UserFileDO folder = new UserFileDO();
@@ -299,6 +298,39 @@ public class UserFileServiceImpl extends ServiceImpl<UserFileMapper, UserFileDO>
                 .set(UserFileDO::getUpdateTime, new Date())
                 .in(UserFileDO::getId, ctx.getIds());
         update(update);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void cleanExpiredRecycle() {
+        Date threshold = Date.from(Instant.now().minus(30, ChronoUnit.DAYS));
+
+        List<UserFileDO> expired = list(new LambdaQueryWrapper<UserFileDO>()
+                .eq(UserFileDO::getDelFlag, 1)
+                .lt(UserFileDO::getUpdateTime, threshold));
+
+        if (expired.isEmpty()) {
+            log.info("[RecycleCleanup] No expired files found");
+            return;
+        }
+
+        List<Long> expiredIds = expired.stream().map(UserFileDO::getId).collect(Collectors.toList());
+        List<Long> candidateFileIds = expired.stream()
+                .filter(f -> f.getRealFileId() != null)
+                .map(UserFileDO::getRealFileId)
+                .distinct()
+                .collect(Collectors.toList());
+
+        removeByIds(expiredIds);
+        log.info("[RecycleCleanup] Removed {} expired user_file records", expiredIds.size());
+
+        for (Long fileId : candidateFileIds) {
+            long refCount = count(new LambdaQueryWrapper<UserFileDO>()
+                    .eq(UserFileDO::getRealFileId, fileId));
+            if (refCount == 0) {
+                fileService.deletePhysicalFile(fileId);
+                log.info("[RecycleCleanup] Deleted physical file id={}", fileId);
+            }
+        }
     }
 
     public void deleteFiles(UserFileDeleteContext ctx) {

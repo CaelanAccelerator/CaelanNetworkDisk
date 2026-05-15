@@ -6,6 +6,7 @@ import org.springframework.web.multipart.MultipartFile;
 @Data
 public class UploadFileContext {
     private Long userId;
+    private String identifier;
     private Long parentId;
     private Integer fileType;
     private MultipartFile file;
